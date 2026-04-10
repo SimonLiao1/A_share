@@ -1,0 +1,46 @@
+{
+  "portfolios": {
+    "default": {
+      "name": "default",
+      "description": "默认投资组合",
+      "shares": [
+        {
+          "code": "002001",
+          "name": "新和成",
+          "asset_class": "stock",
+          "exchange": "SZSE",
+          "sector": "医药化工"
+        },
+        {
+          "code": "520500",
+          "name": "恒生创新药ETF",
+          "asset_class": "etf",
+          "exchange": "SSE",
+          "sector": "ETF-医药"
+        },
+        {
+          "code": "601318",
+          "name": "中国平安",
+          "asset_class": "stock",
+          "exchange": "SSE",
+          "sector": "金融-保险"
+        },
+        {
+          "code": "601390",
+          "name": "中国中铁",
+          "asset_class": "stock",
+          "exchange": "SSE",
+          "sector": "基建-铁路"
+        },
+        {
+          "code": "601899",
+          "name": "紫金矿业",
+          "asset_class": "stock",
+          "exchange": "SSE",
+          "sector": "矿业-黄金铜矿"
+        }
+      ]
+    }
+  },
+  "_comment": "如需新增Portfolio，在portfolios对象下添加新key，shares数组支持多只股票"
+}
