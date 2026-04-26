@@ -12,17 +12,18 @@
 │   └── Portfolio_shares.json          # 组合配置
 ├── src/
 │   ├── data_fetch/
-│   │   └── astock_cli_daily_price.py  # CLI 主程序
-│   └── strategy/                      # 后续策略目录（待扩展）
+│   │   └── astock_cli_daily_price.py # CLI 主程序
+│   └── strategy/                    # 后续策略目录（待扩展）
 ├── data/
-│   └── daily_price/                   # 日线数据存储
-│       ├── 新和成_20260410.csv
-│       ├── 中国平安_20260410.csv
-│       ├── 中国中铁_20260410.csv
-│       └── 紫金矿业_20260410.csv
-├── log/                               # 日志目录
+│   └── daily_price/                  # 日线数据存储
+│       ├── 新和成_YYYYMMDD.csv
+│       ├── 恒生创新药ETF_YYYYMMDD.csv
+│       ├── 中国平安_YYYYMMDD.csv
+│       ├── 中国中铁_YYYYMMDD.csv
+│       └── 紫金矿业_YYYYMMDD.csv
+├── log/                              # 日志目录
 │   └── dailyprice_<YYYYMMDD>_error.log
-└── datafetch.md                       # 本设计文档
+└── datafetch.md                      # 本设计文档
 ```
 
 ---
@@ -30,17 +31,19 @@
 ## CLI 命令
 
 ```bash
+cd /root/stock/A_share
+source venv/bin/activate
+PYTHONPATH=/root/stock/A_share/src/data_fetch python3 -m astock_cli_daily_price <command>
+
 # 获取数据（自动识别全量/增量）
-python -m astock_cli_daily_price fetch --portfolio default
+python3 -m astock_cli_daily_price fetch
 
 # 查看各标的数据状态
-python -m astock_cli_daily_price status --portfolio default
+python3 -m astock_cli_daily_price status
 
 # 列出所有 Portfolio
-python -m astock_cli_daily_price list
+python3 -m astock_cli_daily_price list
 ```
-
-> 注：需要在 `/root/stock/A_share` 目录下执行，或设置 `PYTHONPATH=/root/stock/A_share/src/data_fetch`
 
 ---
 
@@ -60,24 +63,26 @@ python -m astock_cli_daily_price list
 ## 增量更新逻辑
 
 ```
-已有文件最后日期：2026-04-10
-今天日期：2026-04-10
-→ 检测到已是最新，跳过，写入 0 行
+已有文件最后日期：2026-04-24
+今天日期：2026-04-27（周一，市场未开/周末无新数据）
+→ 检测到增量区间无新数据 → 已是最新（跳过，不浪费重试）
 ```
 
 ```
-已有文件最后日期：2026-04-01
-今天日期：2026-04-10
-→ 增量获取：2026-04-02 ~ 2026-04-10
-→ 只追加 2026-04-02 之后的新行
+已有文件最后日期：2026-04-10
+今天日期：2026-04-13
+→ 增量获取：2026-04-11 ~ 2026-04-13
+→ 只追加 2026-04-11 之后的新行
 → 已有日期的数据不会重复写入
 ```
+
+**注意**：当增量获取返回空数据时（如周末/节假日/收盘前），工具会立即识别为"已是最新"并跳过，**不会触发重试**（避免浪费 6 分钟等待）。
 
 ---
 
 ## 重试机制
 
-- **触发条件**：网络错误 / 接口返回空数据
+- **触发条件**：网络错误（连接断开、超时等）
 - **等待时间**：每次失败后等待 **120 秒**（2分钟）
 - **最大重试**：**3 次**
 - **重试失败**：写入 `log/dailyprice_<YYYYMMDD>_error.log`，继续处理下一只股票
@@ -92,7 +97,7 @@ python -m astock_cli_daily_price list
 
 - `name`：来自 `Portfolio_shares.json` 中的 `name` 字段
 - `YYYYMMDD`：脚本运行时的日期（北京时间）
-- 示例：`新和成_20260410.csv`、`紫金矿业_20260410.csv`
+- 示例：`新和成_20260427.csv`、`恒生创新药ETF_20260427.csv`
 
 ---
 
@@ -131,15 +136,15 @@ date,open,high,low,close,volume
 
 ---
 
-## 已知问题
+## 网络要求
 
-- **ETF 接口**：当前服务器网络环境无法访问 ETF 新浪/东财接口，ETF（520500 恒生创新药ETF）暂时无法获取。股票接口（A股）正常。
-- **网络要求**：需要能够访问东方财富（eastmoney.com）和新浪财经（sina.com.cn）接口。
+需要能够访问：
+- 东方财富（eastmoney.com）：A股主接口
+- 新浪财经（sina.com.cn）：A股备用接口 / ETF 接口
 
 ---
 
 ## 更新日志
 
-- **2026-04-10**：初版实现，支持全量/增量获取、重试机制、错误日志
-- 支持 A 股（`stock_zh_a_hist` + `stock_zh_a_daily` fallback）
-- ETF 接口预留（待网络环境修复后可用）
+- **2026-04-27**：修复 ETF 获取 bug（`fund_etf_hist_sina` 不支持 `start_date/end_date` 参数，改为取数后过滤）；修复增量无数据时的重试逻辑（立即跳过而非浪费 6 分钟等待）
+- **2026-04-10**：初版实现，支持全量/增量获取、重试机制、错误日志；支持 A 股（`stock_zh_a_hist` + `stock_zh_a_daily` fallback）
