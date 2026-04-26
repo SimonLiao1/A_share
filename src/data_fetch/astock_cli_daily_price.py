@@ -184,6 +184,8 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str,
     # 转换日期格式
     start_dt = to_trade_date(start_date)
     end_dt = to_trade_date(end_date)
+    start_dt_parsed = pd.to_datetime(start_dt)
+    end_dt_parsed = pd.to_datetime(end_dt)
 
     df = None
 
@@ -204,10 +206,14 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str,
         return df
 
     if asset_class == "etf":
-        # ETF: fund_etf_hist_sina
+        # ETF: fund_etf_hist_sina (返回全部历史数据，不支持 start/end date 参数)
         try:
             logger.debug(f"[{symbol}] ETF 主接口尝试", extra=extra)
-            df = ak.fund_etf_hist_sina(symbol=f"sh{symbol}", start_date=start_dt, end_date=end_dt)
+            df = ak.fund_etf_hist_sina(symbol=f"sh{symbol}")
+            # 转换为日期格式并按范围过滤
+            if df is not None and not df.empty and "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
+                df = df[(df["date"] >= start_dt_parsed) & (df["date"] <= end_dt_parsed)].copy()
         except Exception as e:
             logger.debug(f"[{symbol}] ETF 主接口失败: {e}", extra=extra)
             df = None
@@ -238,15 +244,16 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str,
                 df = None
 
     if df is None or df.empty:
-        logger.warning(f"[{symbol}] {stock_name}: 全部接口均无数据", extra=extra)
-        return None
+        # 返回空 DataFrame（而非 None）—— 调用方通过 .empty 判断
+        logger.debug(f"[{symbol}] {stock_name}: 接口返回空数据", extra=extra)
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
     # 标准化列名
     df = _col_rename(df)
 
     if df is None or df.empty:
-        logger.warning(f"[{symbol}] {stock_name}: 全部接口均无数据", extra=extra)
-        return None
+        logger.debug(f"[{symbol}] {stock_name}: 列标准化后为空", extra=extra)
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
 
     # 统一保留列
     keep = [c for c in ["date", "open", "high", "low", "close", "volume"] if c in df.columns]
@@ -353,11 +360,12 @@ def cmd_fetch(portfolio_name: str = "default"):
             start_date = START_DATE
             mode = "全量"
 
-        logger.info(f"[{name}] {mode}获取，从 {start_date} 起", extra=extra)
+        is_incremental = (mode == "增量")
 
         # 带重试的数据获取
         df = None
         last_err = None
+        already_up_to_date = False
         for attempt in range(1, RETRIES + 1):
             try:
                 df = fetch_stock_daily(
@@ -369,6 +377,11 @@ def cmd_fetch(portfolio_name: str = "default"):
                 )
                 if df is not None and not df.empty:
                     break
+                # 增量获取返回空：说明没有新数据（市场未开/周末），无需重试
+                if is_incremental and df is not None and df.empty:
+                    logger.info(f"[{name}]: 已是最新 (最后 {start_date} 前无新数据)", extra=extra)
+                    already_up_to_date = True
+                    break
             except Exception as e:
                 last_err = e
                 logger.error(
@@ -379,6 +392,10 @@ def cmd_fetch(portfolio_name: str = "default"):
             if attempt < RETRIES:
                 logger.warning(f"[{name}] {RETRY_WAIT}秒后第 {attempt+1} 次重试...", extra=extra)
                 time.sleep(RETRY_WAIT)
+
+        if already_up_to_date:
+            results["skipped"] += 1
+            continue
 
         # 写入
         if df is not None and not df.empty:
