@@ -318,9 +318,10 @@ def write_incremental(df_new: pd.DataFrame, stock_name: str, existing_file: Path
 
     if filepath.exists():
         try:
-            df_existing = pd.read_csv(filepath, parse_dates=["date"])
-            last_date = pd.to_datetime(df_existing["date"]).max()
-            new_dates = pd.to_datetime(df_new["date"])
+            df_existing = pd.read_csv(filepath)
+            df_existing["date"] = pd.to_datetime(df_existing["date"], format="mixed")
+            last_date = df_existing["date"].max()
+            new_dates = pd.to_datetime(df_new["date"], format="mixed")
             # 分类：新行（date > last_date）、同日更新行（date == last_date）、旧行（date < last_date）
             df_later = df_new[new_dates > last_date].copy()  # 真正的新行
             df_same = df_new[new_dates == last_date].copy()  # 同日更新（如收盘价修正）
