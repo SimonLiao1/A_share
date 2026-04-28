@@ -320,12 +320,22 @@ def write_incremental(df_new: pd.DataFrame, stock_name: str, existing_file: Path
         try:
             df_existing = pd.read_csv(filepath, parse_dates=["date"])
             last_date = pd.to_datetime(df_existing["date"]).max()
-            df_new = df_new[df_new["date"] > last_date.strftime("%Y-%m-%d")].copy()
-            if df_new.empty:
+            new_dates = pd.to_datetime(df_new["date"])
+            # 分类：新行（date > last_date）、同日更新行（date == last_date）、旧行（date < last_date）
+            df_later = df_new[new_dates > last_date].copy()  # 真正的新行
+            df_same = df_new[new_dates == last_date].copy()  # 同日更新（如收盘价修正）
+            if df_later.empty and df_same.empty:
                 logger.info(f"[{stock_name}]: 数据已是最新（最后 {last_date.date()}）", extra=extra)
                 return 0
-            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-            logger.info(f"[{stock_name}]: 增量 {len(df_new)} 行，全文件共 {len(df_combined)} 行", extra=extra)
+            if df_same.empty:
+                df_combined = pd.concat([df_existing, df_later], ignore_index=True)
+                logger.info(f"[{stock_name}]: 增量 {len(df_later)} 行，全文件共 {len(df_combined)} 行", extra=extra)
+            else:
+                # 同日行：删除旧行，插入新行（保留最新数据）
+                df_existing = df_existing[df_existing["date"] != last_date]
+                df_combined = pd.concat([df_existing, df_later, df_same], ignore_index=True)
+                n_replace = len(df_same)
+                logger.info(f"[{stock_name}]: 更新 {n_replace} 行（含今日收盘修正），全文件共 {len(df_combined)} 行", extra=extra)
         except Exception as e:
             logger.warning(f"[{stock_name}]: 读取已有文件失败，将覆盖 - {e}", extra=extra)
             df_combined = df_new
@@ -366,15 +376,25 @@ def cmd_fetch(portfolio_name: str = "default"):
 
         # 确定起始日期
         existing_file = get_existing_data_file(name)
+        today_date = datetime.now().strftime("%Y-%m-%d")
         if existing_file:
             last_date = get_last_date_from_file(existing_file)
             if last_date:
-                start_date = (last_date + timedelta(days=1)).strftime("%Y%m%d")
-                if start_date > today_str:
-                    logger.info(f"[{name}]: 已是最新 (最后 {last_date.date()})", extra=extra)
-                    results["skipped"] += 1
-                    continue
-                mode = "增量"
+                next_date = last_date + timedelta(days=1)
+                next_date_str = next_date.strftime("%Y%m%d")
+                # 比较日期而非字符串：避免 "2026-04-29" vs "20260428" 格式混用问题
+                if next_date.date() > datetime.now().date():
+                    # 最后日期已是今天（或之后）：若最后日期等于今天，则重新获取以获取正式收盘价
+                    if last_date.date() == datetime.now().date():
+                        start_date = get_today_str()  # 重新获取今日数据（获取正式收盘价）
+                        mode = "增量"
+                    else:
+                        logger.info(f"[{name}]: 已是最新 (最后 {last_date.date()})", extra=extra)
+                        results["skipped"] += 1
+                        continue
+                else:
+                    start_date = next_date_str
+                    mode = "增量"
             else:
                 start_date = START_DATE
                 mode = "全量"
