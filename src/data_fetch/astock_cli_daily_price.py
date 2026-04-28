@@ -110,12 +110,21 @@ def list_portfolios() -> list:
 
 
 def get_existing_data_file(stock_name: str) -> Path | None:
-    """查找已有的日线数据文件，取最新日期的文件。"""
+    """查找已有的日线数据文件，取实际数据日期最新的文件。"""
     pattern = f"{stock_name}_*.csv"
     files = list(DATA_DIR.glob(pattern))
     if not files:
         return None
-    files.sort(key=lambda f: f.name, reverse=True)
+    # 按文件内最后一行日期排序（而非文件名），避免临时文件干扰
+    def last_date_in_file(f: Path):
+        try:
+            df = pd.read_csv(f)
+            if df.empty:
+                return pd.Timestamp.min
+            return pd.to_datetime(df["date"].iloc[-1])
+        except Exception:
+            return pd.Timestamp.min
+    files.sort(key=last_date_in_file, reverse=True)
     return files[0]
 
 
@@ -197,7 +206,7 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str,
             '最高': 'high', '最高价': 'high',
             '最低': 'low', '最低价': 'low',
             '收盘': 'close', '收盘价': 'close',
-            '成交量': 'volume', '成交额': 'volume',
+            '成交量': 'volume', '成交额': 'amount',
         }
         existing = {c.strip(): c for c in df.columns}
         for cn, en in rename_map.items():
