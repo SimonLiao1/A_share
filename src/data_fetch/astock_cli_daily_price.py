@@ -139,15 +139,20 @@ def get_last_date_from_file(filepath: Path) -> datetime | None:
         return None
 
 
-def build_filename(stock_name: str) -> str:
-    """生成今日文件命名：<name>_YYYYMMDD.csv"""
-    today = datetime.now().strftime("%Y%m%d")
+def build_filename(stock_name: str, fallback_date: str | None = None) -> str:
+    """生成文件命名：优先复用已有文件的日期，避免每日建新文件。"""
     safe_name = "".join(c for c in stock_name if c.isalnum() or c in ("_", "-"))
+    # 优先用 fallback_date（已有文件的最大数据日期）
+    if fallback_date:
+        date_str = fallback_date.replace("-", "")
+        return f"{safe_name}_{date_str}.csv"
+    # 无已有文件时，用今天日期
+    today = datetime.now().strftime("%Y%m%d")
     return f"{safe_name}_{today}.csv"
 
 
-def to_csv_filepath(stock_name: str) -> Path:
-    return DATA_DIR / build_filename(stock_name)
+def to_csv_filepath(stock_name: str, fallback_date: str | None = None) -> Path:
+    return DATA_DIR / build_filename(stock_name, fallback_date)
 
 
 def get_today_str() -> str:
@@ -293,14 +298,22 @@ def fetch_stock_daily(symbol: str, start_date: str, end_date: str,
     return df
 
 
-def write_incremental(df_new: pd.DataFrame, stock_name: str) -> int:
+def write_incremental(df_new: pd.DataFrame, stock_name: str, existing_file: Path | None = None) -> int:
     """
     增量写入：
     - 无文件：直接写入
     - 有文件：只追加 last_date 之后的新行
+    - 文件名复用已有文件的日期，避免每日建新文件
     返回追加行数。
     """
-    filepath = to_csv_filepath(stock_name)
+    # 确定文件名：优先用已有文件的日期（保持文件名不变）
+    if existing_file and existing_file.exists():
+        # 从已有文件名提取日期（如 XXX_20260427.csv）
+        fallback_date = existing_file.stem.split("_")[-1]  # e.g. "20260427"
+        filepath = to_csv_filepath(stock_name, fallback_date=fallback_date)
+    else:
+        filepath = to_csv_filepath(stock_name)
+
     extra = {"stock_code": "-", "stock_name": stock_name}
 
     if filepath.exists():
@@ -408,7 +421,7 @@ def cmd_fetch(portfolio_name: str = "default"):
 
         # 写入
         if df is not None and not df.empty:
-            n = write_incremental(df, name)
+            n = write_incremental(df, name, existing_file=existing_file)
             if n >= 0:
                 results["success"] += 1
         else:
